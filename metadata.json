@@ -1,0 +1,6 @@
+{
+  "name": "Speech-to-Text Model Arena",
+  "description": "An interactive benchmarking dashboard and model arena comparing transcription accuracy (WER), latency, and multilingual support across open-source and cloud speech-to-text engines.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
