@@ -1,83 +1,112 @@
-# STT Arena Enhancement Plan
+# Multi-Step Refactoring Instructions for Git Submodule Agent (`stt-arena-design`)
 
-This document details the active enhancement roadmap for STT Arena—the state-of-the-art automatic speech recognition (ASR) benchmarking and orchestration engine.
+## Context & Goal
+We want to modify the `stt-arena-design` repository to natively support **Browser-Based client-side Speech-To-Text (STT) models and runtimes** (such as WebAssembly / WASM, native browser APIs, and in-browser inference engines). 
 
----
+Currently, the parent repository uses complex in-memory regex string replacement hacks (`bootstrap.ts` and `patch_app.cjs`) to inject these features on top of your build. Natively integrating these features into your repo will make these heavy patches obsolete.
 
-## 1. Interactive Leaderboard & Weighting Dynamic Algorithm
-
-- **1.1: Automatic Dataset-Specific Weight Profiler Selectors**
-  - **Description**: Introduce pre-configured weighting presets tailored to specific dataset scenarios (such as Call Center Analytics, Medical Dictations, Bilingual Interviews, and Indonesian Dialect/Slang heavy sessions). Clicking a preset profile will automatically recalibrate the core scoring weights (Accuracy, Latency, Indonesian Support, and Resource Economy) to reflect industry priorities, showing dynamic visual transitions on the weight sliders and re-sorting the active rankings.
-  - **Status**: `[DONE]`
-
-- **1.2: Heatmap 2D Scatter/Bubble Correlation Chart**
-  - **Description**: Add an interactive Recharts 2D Scatter/Bubble Plot directly beneath the filters on the Leaderboard tab. This visualization will graph each loaded engine's Word Error Rate (WER) against its Processing Latency, with bubble sizes corresponding to the model's VRAM requirements, providing an elegant visual matrix to correlate accuracy, latency, and hardware cost.
-  - **Status**: `[DONE]`
-
-- **1.3: Comparative Scoring Simulation Matrix Sandbox**
-  - **Description**: Implement a "Metric Sensitivity Probe" sub-panel under the leaderboard table. This sandbox allows users to simulate varying degrees of network packet loss, audio sample degradation, or heavy background noise, and see in real-time how the custom scores and ranks of local versus cloud models fluctuate.
-  - **Status**: `[TODO]`
+You will implement this refactoring in **5 incremental phases**. After completing each phase, do NOT proceed further. Instead, present your changes, confirm they compile cleanly, and wait for the user to type **"next"** before beginning the next phase.
 
 ---
 
-## 2. Dynamic Comparative Arena Simulator
+## Phase 1: Database & Model Types
+**Goal**: Native metadata fields and model registration.
 
-- **2.1: Custom Audio URL / Wave File Uploader & Parser**
-  - **Description**: Integrate an interactive file drag-and-drop uploader and URL paste input field. This allows developers to supply their own WAV/MP3 files up to 10MB or paste an audio URL, dynamically computing the waveform envelope, simulating word-level predictions, and displaying them side-by-side with adjustable playback speeds (0.5x, 1x, 2x).
-  - **Status**: `[DONE]`
+1. **Modify `src/types/gpu.ts`**:
+   Add the following optional fields to `ManagedModel` interface to track browser-based lifecycles:
+   - `downloadSizeMb?: number;` — Metadata for the model's download size.
+   - `status: 'unloaded' | 'loading' | 'loaded';` — Model lifecycle state.
+   - `progress?: number;` — Current download/loading percentage.
 
-- **2.2: Dual-Speaker Dialogue Conversation Builder**
-  - **Description**: Introduce a conversational turn-by-turn editor component inside the Dialogue Arena. It exposes an editable table where developers can build custom dialogue segments (custom timing intervals, text prompts, speaker assignments) to test custom diarization alignments and speaker overlapping scenarios.
-  - **Status**: `[DONE]`
+2. **Modify `src/data/modelsData.ts`**:
+   Add the browser-based models to the catalog of available models. Set their `sourceType` to `'Browser / WASM'` or `'Browser / Native'` and define appropriate `downloadSizeMb` values:
+   - **Web Speech API**: ID `browser-web-speech-api`, Native API format, always loaded, 0 MB.
+   - **Transformers.js (Whisper Tiny)**: ID `browser-transformers-js`, WASM/ONNX format, 75 MB.
+   - **whisper.cpp (Tiny EN, Base EN, Base Multilingual)**: WASM/ggml formats, 75 MB, 142 MB, 142 MB.
+   - **whisper.cpp Quantized (Tiny EN Q5_1, Base EN Q5_1)**: WASM/ggml formats, 31 MB, 57 MB.
+   - **Mozilla DeepSpeech**: ID `browser-mozilla-deepspeech`, WASM format, 180 MB.
+   - **Baidu DeepSpeech**: ID `browser-baidu-deepspeech`, WASM format, 220 MB.
+   - **Vosk**: ID `browser-vosk`, WASM format, 50 MB.
+   - **Picovoice**: ID `browser-picovoice`, WASM format, 5 MB.
 
-- **2.3: Multilingual Code-Switching Token Highlight Tool**
-  - **Description**: Integrate an interactive "Language Code-Switch Analyzer" overlay for transcripts with mixed languages (e.g., Indonesian / English slang). This tool highlights English vs. Indonesian words in dedicated high-contrast colored pills, allowing users to hover over any token to inspect structural confidence indicators and language categorization tags of the engines.
-  - **Status**: `[TODO]`
-
----
-
-## 3. High-Fidelity Cost Calculator (Cloud vs. Local GPU Clusters)
-
-- **3.1: ROI Breakeven Trend Chart with Scalable Audio Volume**
-  - **Description**: Integrate an interactive dual-axis line chart in the cost calculator illustrating the cumulative 3-year Total Cost of Ownership (TCO) comparing active GPU cluster options to Cloud SaaS alternatives. As transcribing volume (hours/month) increases via a responsive slider, the chart dynamically marks and highlights the exact breakeven intersection of CAPEX vs. OPEX.
-  - **Status**: `[DONE]`
-
-- **3.2: Multi-Cloud Hardware Infrastructure Pricer & Customized Nodes**
-  - **Description**: Create an advanced cloud hardware customizer drawer that lets users toggle between tier-1 clouds (AWS, GCP, Azure, RunPod, Lambda Labs) to choose specific GPU models (e.g., H100, A100 80GB, L4, T4). This overrides default node pricing, automatically updating overhead cost elements like ingress/egress network fees, and DevOps staffing costs.
-  - **Status**: `[TODO]`
-
-- **3.3: Compression Bitrate and SLA Audio Processing Formula**
-  - **Description**: Implement an interactive drop-down configuration panel to select audio container formats (RAW WAV, FLAC, high-quality MP3, ultra-low bitrate OPUS) with real-time calculations showing estimated network bandwidth bytes stored monthly. The tool automatically integrates these storage fees and egress network overhead costs into the monthly cluster bill projections.
-  - **Status**: `[TODO]`
+*Stop here. Report your changes, verify they compile, and wait for the user to say **"next"**.*
 
 ---
 
-## 4. Production Integration Deployment Blueprints (SDK Center)
+## Phase 2: Model Registry UI (`ModelCard.tsx` & `GpuModelManager.tsx`)
+**Goal**: Integrate browser model loading status and catalog groupings.
 
-- **4.1: Live API Payload Snippet Generator with Client Configurator**
-  - **Description**: Provide real-time editable parameter inputs on the deployment panel (such as live authentication tokens, custom terminology vocabulary, temperature, and maximum chunk token sizes). Updating any of these fields immediately propagates changes directly inside clean Python, Node.js, and Golang backend snippets, offering a "Copy Payload" container shortcut.
-  - **Status**: `[DONE]`
+1. **Modify `src/components/ModelCard.tsx`**:
+   - If the model is a browser model (e.g. `id.startsWith('browser-')`), render `Download: X MB` instead of `Size: Y GB`.
+   - Implement lifecycle controls in the card footer:
+     - Render **"Load Model in Browser"** (green button) if status is `'unloaded'`.
+     - Render a loading progress bar with percentage if status is `'loading'`.
+     - Render **"Loaded in Browser"** tag alongside an **"Unload from Browser"** button if status is `'loaded'`.
 
-- **4.2: Comprehensive Production-Grade Docker Compose Orchestration Setup**
-  - **Description**: Provide a complete, production-ready `docker-compose.yml` config block containing ready-to-run configurations for Triton Inference Server, Redis Queue, Celery worker nodes, and an Nginx reverse-proxy setup. The code dynamically references the selected Whisper or local engine, incorporating correct CUDA requirements and volume definitions.
-  - **Status**: `[TODO]`
+2. **Modify `src/components/GpuModelManager.tsx`**:
+   - Group the catalog model grid into 7 visual categories: *Whisper Models*, *NVIDIA Models*, *Meta Models*, *Google Models*, *Microsoft Models*, *Browser-Based Engines*, and *Other Models*.
+   - Add **"Load All Engines"** and **"Unload All Engines"** buttons in the headers of these groups to support bulk operations.
+   - Add a `'Browser'` option to the `filterSourceType` select filter.
+   - In the models fetch merge block, ensure local browser models are merged with backend models dynamically, avoiding duplicate item keys if the backend already returns them.
 
-- **4.3: WebSocket Latency Simulator and Real-Time Event Handlers**
-  - **Description**: Add an interactive client-side browser emulator within the SDK tab that simulates receiving binary PCM/WebSocket audio chunks. It renders responsive mock live event listeners for opening connections, transmitting frame-level headers, receiving word-level confidence feedback, and terminating stream handshakes.
-  - **Status**: `[TODO]`
+*Stop here. Report your changes, verify they compile, and wait for the user to say **"next"**.*
 
 ---
 
-## 5. Live HPC GPU Cluster & Model Orchestration Dashboard
+## Phase 3: Client-Side Execution Framework (`src/App.tsx`) [DONE]
+**Goal**: Dynamic UI integration, dropdown grouping, latency tracking, and mic recording.
 
-- **5.1: Fault Injection & CUDA State Chaos Manager**
-  - **Description**: Implement a "GPU Cluster Anomaly & Fault Injection" panel on the GPU list. Users can trigger custom simulated incidents on selected active GPU nodes (such as simulated CUDA Out of Memory exceptions, extreme thermal throttling warnings >88°C, or fan speed failures). This raises dramatic, flashing status alerts, real-time log outputs, and guides the user through hot-swapping workloads to pristine healthy nodes.
-  - **Status**: `[TODO]`
+1. **Comparative Arena Model dropdowns** [DONE]:
+   - Group the selection options in both Fighter dropdowns into `optgroup` elements according to their families (Whisper, NVIDIA, Google, Meta, Microsoft, Browser, and Other).
+   - If a model is not active/available (check health endpoint availability), disable it in the dropdown.
 
-- **5.2: Topologically Animated Interconnect Pipeline Map (NVLink vs PCIe)**
-  - **Description**: Add an interactive topological map showing node cluster networking interconnects (NVIDIA HGX NVLink switches vs. PCIe Gen5 lanes). When models are deployed, scaled, or migrated, the UI draws smooth animated particles showing the high-speed transfer speeds and bandwidth saturation rates across host pipelines in real-time.
-  - **Status**: `[TODO]`
+2. **Microphone Live Recording** [DONE]:
+   - Natively bind the live microphone recording feature using `MediaRecorder` API to capture WAV blobs.
+   - Simultaneously use native browser `SpeechRecognition` API (if available) to capture live transcripts.
+   - Feed completed recordings as custom audio samples.
 
-- **5.3: Model Memory Quantization & Performance Footprint Simulator**
-  - **Description**: Integrate a quantization optimizer panel allowing users to choose model precision formats (FP32, FP16, INT8, down to GGUF quantization levels like Q4_K_M and AWQ 4-bit) for the open-source engines. Adjusting precision formats instantly recalculates and graphs the predicted CPU/GPU footprint savings, RTF processing speeds, and expected word accuracy changes.
-  - **Status**: `[TODO]`
+3. **Measured Latency Outcome Cards** [DONE]:
+   - Ensure the arena battle initiates client-side runtimes for browser models instead of making POST requests to `/api/transcribe`.
+   - Measure the actual client-side latency using `performance.now()`.
+   - Render the measured latency (labeled as `(Measured)`) in both outcome cards and use it to dynamically evaluate the latency winner in the verdict card.
+
+*Completed successfully.*
+
+---
+
+## Phase 4: In-Browser STT Runtimes [DONE]
+**Goal**: Real client-side runners.
+
+In `src/App.tsx`, implement the client-side execution loops:
+1. **Web Speech API** [DONE]: Call the native SpeechRecognition API with the target language.
+2. **Transformers.js** [DONE]: Dynamically import `@xenova/transformers` from CDN, download and initialize the model, resample the audio buffer to 16kHz, and perform inference.
+3. **whisper.cpp WASM** [DONE]: Dynamically load the Emscripten runtime, fetch the ggml models, cache them in IndexedDB, Resample audio to 16kHz mono, and pipe it through the WASM instance.
+4. **Offline Simulators (DeepSpeech / Vosk / Picovoice)** [DONE]: Write local simulators that mimic loading, audio parsing, client-side decoding, and generate transcripts.
+
+*Completed successfully.*
+
+---
+
+## Phase 5: Resource Load Utilization & Sparklines [DONE]
+**Goal**: Simulating browser load during client-side runtimes.
+
+1. **Resource Simulation** [DONE]:
+   - Add state hooks for `cpuLoad`, `gpuLoad`, `cpuHistory`, and `gpuHistory`.
+   - When a browser model starts transcribing, start a resource simulation timer.
+   - WASM runtimes should simulate high CPU utilization (70–95%) and low GPU (1-5%). Native APIs should simulate lower usage (15–30%).
+
+2. **Sparkline Visualization** [DONE]:
+   - Write a helper to render a small text-based sparkline graph from historical values (e.g. mapping CPU history array values to block characters ` ▂▃▄▅▆▇█`).
+   - Append the current resource load and the unicode sparkline history inside the CLI Simulation Console log panel when a browser battle is active.
+
+*Completed successfully.*
+
+---
+
+## Phase 6: Clean Up Parent Repo
+**Goal**: Eliminate parent repo dynamic patches.
+
+Now that `stt-arena-design` natively supports all client-side models, loading, execution, resource graphs, and sparklines:
+1. Inspect the parent repository's `bootstrap.ts` and `patch_app.cjs`.
+2. Strip out all code replacements, file reader interception hooks, and target filters that were performing React component updates on `stt-arena-design` files.
+3. Clean up parent files and verify that the application compiles cleanly.

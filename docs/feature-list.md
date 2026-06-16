@@ -56,10 +56,27 @@ An interactive battleground to view relative output matches between any two stat
   - **Official Indonesian**: *Gubernur DKI Berbicara* (perfect formal articulation of urban updates).
   - **Bilingual Slang**: *Anak Jaksel Hangout* (rapid code-switching, mixing indonesian & english colloquialisms literally).
   - **Mumbled/Noisy Indonesian**: *Warung Kopi Berisik* (high background laughter, plate clinking, Javanese/colloquial words).
-- **Interactive Live Voice Microphone Recording**:
+- **Interactive Live Voice Microphone Recording & Web Speech Client**:
   - Leverages HTML5 web microphone permissions inside the browser workspace.
+  - Simultaneously binds native browser `webkitSpeechRecognition` APIs to capture live text transcript streams directly inside the audio player feed.
   - Interactive visual waveform recorder mapping capture peaks.
   - Compiles live recordings directly into the comparison engine as Custom Microphone tasks.
+- **Unified Family Dropdown Groupings (`optgroup`)**:
+  - Dynamically compiles and organizes Fighter dropdown entries into unified, visually separated structural groups (*Whisper Family*, *NVIDIA Family*, *Google Family*, *Meta Family*, *Microsoft Family*, *Browser-Based Engines*, and *Other Models*).
+  - Integrates conditional active state flags, dynamically disabling standby/unloaded client-side WASM or offline browser engines from being selected in matches until loaded.
+- **Dynamic Real-Time Measured Latency Performance Indicators**:
+  - Directly launches client-side isolated execution paths for active browser engines, tracking true millisecond compilation and inference latencies via browser measurement APIs.
+  - Displays dynamic download size meters, model memory allocations (0.0 GB RAM for native WASM vs dedicated GPU resources), and custom runtime tags in Arena outcome panels.
+  - Couples live measured benchmarks directly to Verdict logic, crowning speed victories dynamically.
+- **Native In-Browser STT Runtimes (Phase 4)**:
+  - **Web Speech API Loop**: Calls native webkitSpeechRecognition API over the browser stream using active language context with microphone fallbacks.
+  - **Transformers.js Pipeline**: Attempts to dynamically load `@xenova/transformers` from CDN, download and compile ONNX weights into client memory, and run in-browser multi-threaded vector inference.
+  - **whisper.cpp WASM Loader**: Establishes Emscripten runtime bindings, fetches and logs GGML binary download steps, caches weights in IndexedDB for sub-second page reloads, and transcribes over local WASM buffers.
+  - **Offline Speech Simulators**: Implements detailed offline executors for Mozilla DeepSpeech, Vosk, and Picovoice that emulate local Viterbi acoustic search paths, finite state transducers, and memory traces.
+- **Client-Side Resource Telemetry & Retro Sparklines (Phase 5)**:
+  - **Dynamic CPU & GPU Load Simulation**: Tracks active CPU and GPU utilization footprints in real-time, accurately modeling heavy WASM CPU workloads (70–95% CPU, 1-5% GPU) vs native lightweight Web Speech APIs (15-30% CPU, 0-1% GPU).
+  - **Text-Based Unicode Sparklines**: Renders beautiful character-by-character retro horizontal sparkline history charts (` ▂▃▄▅▆▇█`) for resource trends directly.
+  - **Terminal Telemetry Stream**: Appends real-time load snapshots and unicode sparkline history vectors inside the CLI Simulation Console log panel during browser translation passes.
 - **SOTA Word Decoding & Voice Pipeline Simulation Logs**:
   - Animates progressive, staggered typing effects of text output during decoding, showing real-time feedback.
   - Progress bar paired with a rolling debug log mirroring local environment allocation: allocation of system VRAM, VAD (Voice Activity Detection) triggers, beam-search optimization threads, and dynamic timestamp reconciliation.

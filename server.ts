@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { generateMockTranscribe, forwardRealASR } from "./server/sttService.js";
+import apiRouter from "./server/apiRouter.js";
 import {
   getMockGpuState,
   loadMockModel,
@@ -26,6 +27,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Mount the developer programmatic v1 STT API Router
+app.use("/api/v1", apiRouter);
 
 // Retrieve active backend configuration
 app.get("/api/config", (req, res) => {

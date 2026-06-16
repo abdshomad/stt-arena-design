@@ -1,11 +1,47 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { GPUModel, ManagedModel, GpuLogMsg } from '../types/gpu';
 import { INITIAL_GPUS, INITIAL_MODELS } from '../data/gpuData';
+import { CANDIDATE_MODELS } from '../data/modelsData';
 import { GpuCard } from './GpuCard';
 import { ModelCard } from './ModelCard';
 import { GpuStatsGrid } from './GpuStatsGrid';
 import { GpuOrchestratorTerminal } from './GpuOrchestratorTerminal';
 import { SlidersHorizontal, AlertTriangle } from 'lucide-react';
+
+const CATEGORIES = [
+  'Whisper Models',
+  'NVIDIA Models',
+  'Meta Models',
+  'Google Models',
+  'Microsoft Models',
+  'Browser-Based Engines',
+  'Other Models'
+];
+
+const getModelCategory = (model: ManagedModel): string => {
+  const nameLower = model.name.toLowerCase();
+  const idLower = model.id.toLowerCase();
+  
+  if (idLower.startsWith('browser-') || model.sourceType?.includes('Browser')) {
+    return 'Browser-Based Engines';
+  }
+  if (nameLower.includes('whisper')) {
+    return 'Whisper Models';
+  }
+  if (nameLower.includes('nvidia') || nameLower.includes('nemotron')) {
+    return 'NVIDIA Models';
+  }
+  if (nameLower.includes('llama') || nameLower.includes('meta')) {
+    return 'Meta Models';
+  }
+  if (nameLower.includes('gemma') || nameLower.includes('google')) {
+    return 'Google Models';
+  }
+  if (nameLower.includes('phi') || nameLower.includes('microsoft')) {
+    return 'Microsoft Models';
+  }
+  return 'Other Models';
+};
 
 export const GpuModelManager: React.FC = () => {
   // Local fallback bootstrapping
@@ -25,13 +61,79 @@ export const GpuModelManager: React.FC = () => {
     });
   };
 
+  const browserManagedModels: ManagedModel[] = useMemo(() => {
+    return CANDIDATE_MODELS.filter((m) => m.id.startsWith('browser-')).map((m) => ({
+      id: m.id,
+      name: m.name,
+      sizeGb: (m.downloadSizeMb || 0) / 1025,
+      parameters: "STT",
+      format: m.sourceType === "Browser / Native" ? "Native API" : "WASM / GGML",
+      capabilities: ["ASR / STT"].concat(m.multilingual ? ["Multilingual"] : []),
+      description: `In-browser client-side runner utilizing ${m.sourceType}. ${m.multilingual ? "Supports multilingual speech-to-text natively." : "Supports English transcription."}`,
+      status: m.id === "browser-web-speech-api" ? "loaded" : "unloaded",
+      downloadSizeMb: m.downloadSizeMb,
+      sourceType: m.sourceType
+    }));
+  }, []);
+
   const [gpus, setGpus] = useState<GPUModel[]>(prepareGpuStates);
-  const [models, setModels] = useState<ManagedModel[]>(INITIAL_MODELS);
+  const [models, setModels] = useState<ManagedModel[]>(() => {
+    const list = [...INITIAL_MODELS];
+    
+    let savedStatuses: { [id: string]: string } = {};
+    const stored = localStorage.getItem('stt_browser_model_statuses');
+    if (stored) {
+      try {
+        savedStatuses = JSON.parse(stored);
+      } catch (e) {
+        console.error("Failed to parse stored browserStatuses in model manager initializer:", e);
+      }
+    }
+
+    // Map initial browser models into ManagedModel
+    const browserList = CANDIDATE_MODELS.filter((m) => m.id.startsWith('browser-')).map((m) => {
+      const savedStatus = savedStatuses[m.id];
+      return {
+        id: m.id,
+        name: m.name,
+        sizeGb: (m.downloadSizeMb || 0) / 1025,
+        parameters: "STT",
+        format: m.sourceType === "Browser / Native" ? "Native API" : "WASM / GGML",
+        capabilities: ["ASR / STT"].concat(m.multilingual ? ["Multilingual"] : []),
+        description: `In-browser client-side runner utilizing ${m.sourceType}. ${m.multilingual ? "Supports multilingual speech-to-text natively." : "Supports English transcription."}`,
+        status: (savedStatus || (m.id === "browser-web-speech-api" ? "loaded" : "unloaded")) as any,
+        downloadSizeMb: m.downloadSizeMb,
+        sourceType: m.sourceType
+      };
+    });
+    browserList.forEach(bm => {
+      if (!list.some(x => x.id === bm.id)) {
+        list.push(bm);
+      }
+    });
+    return list;
+  });
+
+  // Keep localStorage in sync with our browser models' loaded status
+  useEffect(() => {
+    const browserStatuses: { [id: string]: string } = {};
+    models.forEach(m => {
+      if (m.id.startsWith('browser-')) {
+        browserStatuses[m.id] = m.status;
+      }
+    });
+    localStorage.setItem('stt_browser_model_statuses', JSON.stringify(browserStatuses));
+    
+    // Broadcast custom event for other listeners in App.tsx
+    const event = new CustomEvent('stt-models-updated', { detail: models });
+    window.dispatchEvent(event);
+  }, [models]);
   const [logs, setLogs] = useState<GpuLogMsg[]>([
     { id: '1', timestamp: '15:40:35', level: 'success', message: 'HPC GPU Orchestration engine initialized.' },
     { id: '2', timestamp: '15:40:36', level: 'info', message: 'Ready to connect ASR Node Gateway.' }
   ]);
   const [filterCapState, setFilterCapState] = useState<string>('All');
+  const [filterSourceType, setFilterSourceType] = useState<string>('All');
   const [vramWarning, setVramWarning] = useState<string | null>(null);
 
   const addLog = (message: string, level: 'info' | 'warning' | 'success' = 'info') => {
@@ -52,7 +154,36 @@ export const GpuModelManager: React.FC = () => {
       .then((data) => {
         if (data && data.gpus && data.models) {
           setGpus(data.gpus);
-          setModels(data.models);
+          setModels((prevModels) => {
+            const fetchedModels: ManagedModel[] = data.models;
+            
+            // Re-bootstrap local browser status map
+            const localStateMap = new Map<string, { status: 'unloaded' | 'loading' | 'loaded', progress?: number }>();
+            prevModels.forEach(m => {
+              if (m.id.startsWith('browser-')) {
+                localStateMap.set(m.id, { status: m.status, progress: m.progress });
+              }
+            });
+
+            const activeBrowserModels = browserManagedModels.map(bm => {
+              const saved = localStateMap.get(bm.id);
+              return {
+                ...bm,
+                status: saved?.status ?? bm.status,
+                progress: saved?.progress ?? bm.progress
+              };
+            });
+
+            // Prevent duplicate models in UI catalog
+            const merged = [...fetchedModels];
+            activeBrowserModels.forEach(bm => {
+              if (!merged.some(m => m.id === bm.id)) {
+                merged.push(bm);
+              }
+            });
+            return merged;
+          });
+
           if (data.fallbackWarning) {
             setVramWarning(data.fallbackWarning);
           }
@@ -72,8 +203,36 @@ export const GpuModelManager: React.FC = () => {
   // LOAD MODEL HANDLER
   const handleLoadModel = (modelId: string, gpuId: string) => {
     const targetModel = models.find((m) => m.id === modelId);
+    if (!targetModel) return;
+
+    if (modelId.startsWith('browser-') || gpuId === 'browser') {
+      setVramWarning(null);
+      addLog(`Initiating browser-side downloads for ${targetModel.name}...`, 'info');
+      setModels((prev) =>
+        prev.map((m) => (m.id === modelId ? { ...m, status: 'loading', progress: 5 } : m))
+      );
+      
+      let curProgress = 5;
+      const interval = setInterval(() => {
+        curProgress += Math.round(Math.random() * 15) + 5;
+        if (curProgress >= 100) {
+          curProgress = 100;
+          clearInterval(interval);
+          setModels((prev) =>
+            prev.map((m) => (m.id === modelId ? { ...m, status: 'loaded', progress: undefined } : m))
+          );
+          addLog(`${targetModel.name} successfully compiled & loaded in browser context!`, 'success');
+        } else {
+          setModels((prev) =>
+            prev.map((m) => (m.id === modelId ? { ...m, progress: curProgress } : m))
+          );
+        }
+      }, 200);
+      return;
+    }
+
     const targetGpu = gpus.find((g) => g.id === gpuId);
-    if (!targetModel || !targetGpu) return;
+    if (!targetGpu) return;
 
     const freeSpace = targetGpu.vramTotalGb - targetGpu.vramUsedGb;
     if (freeSpace < targetModel.sizeGb) {
@@ -128,7 +287,19 @@ export const GpuModelManager: React.FC = () => {
   // UNLOAD MODEL HANDLER
   const handleUnloadModel = (modelId: string) => {
     const targetModel = models.find((m) => m.id === modelId);
-    if (!targetModel || !targetModel.gpuId) return;
+    if (!targetModel) return;
+
+    if (modelId.startsWith('browser-')) {
+      setVramWarning(null);
+      addLog(`Disposing browser variables & freeing client-side RAM for ${targetModel.name}.`, 'info');
+      setModels((prev) =>
+        prev.map((m) => (m.id === modelId ? { ...m, status: 'unloaded', progress: undefined } : m))
+      );
+      addLog(`${targetModel.name} unloaded from browser storage.`, 'success');
+      return;
+    }
+
+    if (!targetModel.gpuId) return;
 
     setVramWarning(null);
     addLog(`De-allocating VRAM pool. Unloading ${targetModel.name}...`, 'info');
@@ -168,6 +339,31 @@ export const GpuModelManager: React.FC = () => {
         );
         addLog(`Model ${targetModel.name} unloaded internally (local fallback).`, 'success');
       });
+  };
+
+  const handleLoadGroup = (groupName: string, groupModels: ManagedModel[]) => {
+    addLog(`Initiating bulk load for group: ${groupName}...`, 'info');
+    groupModels.forEach((m) => {
+      if (m.status !== 'unloaded') return;
+      if (m.id.startsWith('browser-') || m.sourceType?.startsWith('Browser')) {
+        handleLoadModel(m.id, 'browser');
+      } else {
+        const targetGpu = gpus.find((g) => g.vramTotalGb - g.vramUsedGb >= m.sizeGb);
+        if (targetGpu) {
+          handleLoadModel(m.id, targetGpu.id);
+        } else {
+          addLog(`Bulk load failed for ${m.name}: Insufficient VRAM on cluster.`, 'warning');
+        }
+      }
+    });
+  };
+
+  const handleUnloadGroup = (groupName: string, groupModels: ManagedModel[]) => {
+    addLog(`Initiating bulk unload for group: ${groupName}...`, 'info');
+    groupModels.forEach((m) => {
+      if (m.status === 'unloaded') return;
+      handleUnloadModel(m.id);
+    });
   };
 
   // LIVE TRANSFER/MOVE MODEL HANDLER
@@ -222,9 +418,31 @@ export const GpuModelManager: React.FC = () => {
   }, [gpus, models]);
 
   const filteredModels = useMemo(() => {
-    if (filterCapState === 'All') return models;
-    return models.filter((m) => m.capabilities.includes(filterCapState));
-  }, [models, filterCapState]);
+    return models.filter((m) => {
+      const capMatch = filterCapState === 'All' || m.capabilities.includes(filterCapState);
+      const isBrowser = m.id.startsWith('browser-') || m.sourceType?.includes('Browser');
+      const sourceMatch = filterSourceType === 'All'
+        ? true
+        : filterSourceType === 'Browser'
+        ? isBrowser
+        : !isBrowser;
+      return capMatch && sourceMatch;
+    });
+  }, [models, filterCapState, filterSourceType]);
+
+  const groupedModels = useMemo(() => {
+    const groups: { [key: string]: ManagedModel[] } = {};
+    for (const cat of CATEGORIES) {
+      groups[cat] = [];
+    }
+    
+    for (const model of filteredModels) {
+      const cat = getModelCategory(model);
+      groups[cat].push(model);
+    }
+    
+    return groups;
+  }, [filteredModels]);
 
   return (
     <div className="space-y-6">
@@ -267,36 +485,80 @@ export const GpuModelManager: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs bg-slate-100 p-1 rounded-xl border border-slate-200/50">
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-100 p-1 rounded-xl border border-slate-200/50">
             <span className="text-slate-500 font-medium px-2 flex items-center gap-1">
-              <SlidersHorizontal className="w-3.5 h-3.5" /> Capabilities:
+              <SlidersHorizontal className="w-3.5 h-3.5" /> Filters:
             </span>
             <select
               value={filterCapState}
               onChange={(e) => setFilterCapState(e.target.value)}
-              className="py-1 px-2.5 rounded-lg border-0 bg-white shadow-xs text-xs font-semibold focus:outline-none cursor-pointer"
+              className="py-1 px-2.5 rounded-lg border-0 bg-white shadow-xs text-xs font-semibold focus:outline-none cursor-pointer text-slate-800"
             >
-              <option value="All">All Types</option>
+              <option value="All">All Capabilities</option>
               <option value="Text Gen">Text Generation</option>
               <option value="Coding">Code Generation</option>
               <option value="ASR / STT">ASR / Speech Recognition</option>
               <option value="Multilingual">Multilingual Capabilities</option>
               <option value="Complex Reasoning">Complex Reasoning</option>
             </select>
+            <span className="h-4 w-px bg-slate-300 mx-1"></span>
+            <select
+              value={filterSourceType}
+              onChange={(e) => setFilterSourceType(e.target.value)}
+              className="py-1 px-2.5 rounded-lg border-0 bg-white shadow-xs text-xs font-semibold focus:outline-none cursor-pointer text-slate-800"
+            >
+              <option value="All">All Sources</option>
+              <option value="Browser">Browser / WASM / Native</option>
+              <option value="Cloud">Node / GPU Cloud</option>
+            </select>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-5">
-          {filteredModels.map((model) => (
-            <ModelCard
-              key={model.id}
-              model={model}
-              gpus={gpus}
-              onLoadModel={handleLoadModel}
-              onUnloadModel={handleUnloadModel}
-              onMoveModel={handleMoveModel}
-            />
-          ))}
+        <div className="space-y-10 mt-6">
+          {CATEGORIES.map((category) => {
+            const list = groupedModels[category] || [];
+            if (list.length === 0) return null;
+            return (
+              <div key={category} className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border border-slate-150 p-3.5 rounded-2xl">
+                  <div>
+                    <h3 className="text-slate-905 font-display font-bold text-sm flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 block shadow-[0_0_8px_rgba(79,70,229,0.5)]"></span>
+                      {category}
+                      <span className="text-[11px] font-mono text-slate-400 font-normal ml-1">({list.length} models)</span>
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleLoadGroup(category, list)}
+                      className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-700 border border-emerald-200/60 font-medium rounded-lg text-xs transition-colors cursor-pointer"
+                    >
+                      Load All Engines
+                    </button>
+                    <button
+                      onClick={() => handleUnloadGroup(category, list)}
+                      className="px-3 py-1 bg-rose-50 hover:bg-rose-100/80 text-rose-700 border border-rose-200/60 font-medium rounded-lg text-xs transition-colors cursor-pointer"
+                    >
+                      Unload All Engines
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {list.map((model) => (
+                    <ModelCard
+                      key={model.id}
+                      model={model}
+                      gpus={gpus}
+                      onLoadModel={handleLoadModel}
+                      onUnloadModel={handleUnloadModel}
+                      onMoveModel={handleMoveModel}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

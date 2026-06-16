@@ -6,7 +6,8 @@ export interface STTModel {
   emotionDetection: boolean;
   mumblingRobustness: boolean;
   indonesiaSpecific: boolean;
-  sourceType: 'Local / CTranslate2' | 'Local / PyTorch' | 'Local / C++' | 'Local / NeMo' | 'Local / Meta MMS' | 'Local / Edge AI' | 'Local / Multi-modal' | 'Local / LLM Audio' | 'Local' | 'HuggingFace';
+  sourceType: 'Local / CTranslate2' | 'Local / PyTorch' | 'Local / C++' | 'Local / NeMo' | 'Local / Meta MMS' | 'Local / Edge AI' | 'Local / Multi-modal' | 'Local / LLM Audio' | 'Local' | 'HuggingFace' | 'Browser / WASM' | 'Browser / Native';
+  downloadSizeMb?: number;
   
   // Simulated benchmark metrics for developers to do real comparison:
   werEnglish: number; // Word Error Rate % on Clear English (lower is better)

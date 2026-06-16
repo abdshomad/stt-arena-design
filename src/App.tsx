@@ -5,6 +5,8 @@ import { CompareDock } from './components/CompareDock';
 import { WeightPresets } from './components/WeightPresets';
 import { TcoLineChart } from './components/TcoLineChart';
 import { ApiPayloadGenerator } from './components/ApiPayloadGenerator';
+import { ApiSandbox } from './components/ApiSandbox';
+import { ComparativeAnalysisReport } from './components/ComparativeAnalysisReport';
 import { 
   Activity, 
   Award, 
@@ -57,6 +59,7 @@ import AudioSlicerWaveform from './components/AudioSlicerWaveform';
 import LeaderboardScatterChart from './components/LeaderboardScatterChart';
 import { CustomAudioUploader } from './components/CustomAudioUploader';
 import { STTModel, CloudAlternative, AudioSample } from './types';
+import { runWebSpeechApi, runTransformersJs, runWhisperCppWasm, runOfflineSimulator, generateSparkline } from './lib/browserSttRunners';
 import { 
   ResponsiveContainer, 
   ScatterChart, 
@@ -90,6 +93,131 @@ export default function App() {
         console.error("Failed to retrieve ASR Gateway Config:", err);
       });
   }, []);
+
+  // Model family and status sync states (Phase 3)
+  const [modelStatuses, setModelStatuses] = useState<{ [id: string]: string }>({});
+  const [actualLatencyA, setActualLatencyA] = useState<number | null>(null);
+  const [actualLatencyB, setActualLatencyB] = useState<number | null>(null);
+
+  const getModelFamilyName = (m: STTModel) => {
+    const name = m.name.toLowerCase();
+    const id = m.id.toLowerCase();
+    const source = m.sourceType.toLowerCase();
+
+    if (id.startsWith('browser-') || source.includes('browser') || id.includes('deepspeech') || id.includes('vosk') || id.includes('picovoice')) {
+      return 'Browser-Based Engines';
+    } else if (id.includes('whisper') || name.includes('whisper')) {
+      return 'Whisper Family';
+    } else if (id.includes('nvidia') || name.includes('nvidia') || name.includes('nemotron')) {
+      return 'NVIDIA Family';
+    } else if (id.includes('google') || name.includes('google') || name.includes('gemma')) {
+      return 'Google Family';
+    } else if (id.includes('meta') || name.includes('meta') || name.includes('mms')) {
+      return 'Meta Family';
+    } else if (id.includes('microsoft') || name.includes('microsoft')) {
+      return 'Microsoft Family';
+    } else {
+      return 'Other Models';
+    }
+  };
+
+  const groupedFighters = useMemo(() => {
+    const groups: { [key: string]: STTModel[] } = {
+      'Whisper Family': [],
+      'NVIDIA Family': [],
+      'Google Family': [],
+      'Meta Family': [],
+      'Microsoft Family': [],
+      'Browser-Based Engines': [],
+      'Other Models': []
+    };
+    CANDIDATE_MODELS.forEach(m => {
+      const family = getModelFamilyName(m);
+      groups[family].push(m);
+    });
+    return groups;
+  }, []);
+
+  const syncAllModelStatuses = () => {
+    fetch('/api/gpus')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.models) {
+          const statuses: { [id: string]: string } = {};
+          // Load statuses from server-side GPUS models
+          data.models.forEach((m: any) => {
+            statuses[m.id] = m.status;
+          });
+          
+          // Load statuses from localStorage for browser models
+          const stored = localStorage.getItem('stt_browser_model_statuses');
+          if (stored) {
+            try {
+              const browserStatuses = JSON.parse(stored);
+              Object.keys(browserStatuses).forEach(k => {
+                statuses[k] = browserStatuses[k];
+              });
+            } catch (e) {
+              console.error("Failed to parse browser model statuses:", e);
+            }
+          } else {
+            // Default browser statuses
+            CANDIDATE_MODELS.forEach(m => {
+              if (m.id.startsWith('browser-')) {
+                statuses[m.id] = m.id === "browser-web-speech-api" ? "loaded" : "unloaded";
+              }
+            });
+          }
+          setModelStatuses(statuses);
+        }
+      })
+      .catch(() => {
+        const statuses: { [id: string]: string } = {};
+        const stored = localStorage.getItem('stt_browser_model_statuses');
+        if (stored) {
+          try {
+            const browserStatuses = JSON.parse(stored);
+            Object.keys(browserStatuses).forEach(k => {
+              statuses[k] = browserStatuses[k];
+            });
+          } catch (e) {}
+        } else {
+          CANDIDATE_MODELS.forEach(m => {
+            if (m.id.startsWith('browser-')) {
+              statuses[m.id] = m.id === "browser-web-speech-api" ? "loaded" : "unloaded";
+            }
+          });
+        }
+        setModelStatuses(statuses);
+      });
+  };
+
+  useEffect(() => {
+    syncAllModelStatuses();
+    const interval = setInterval(syncAllModelStatuses, 2500);
+    
+    // Also listen to window updates
+    const handleSyncEvent = () => {
+      syncAllModelStatuses();
+    };
+    window.addEventListener('stt-models-updated', handleSyncEvent);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('stt-models-updated', handleSyncEvent);
+    };
+  }, []);
+
+  const isModelActive = (modelId: string) => {
+    const candidate = CANDIDATE_MODELS.find(c => c.id === modelId);
+    if (!candidate) return true;
+    
+    const status = modelStatuses[modelId];
+    if (status !== undefined) {
+      return status === 'loaded';
+    }
+    return true;
+  };
 
   // Sliders for dynamic custom weights
   const [weights, setWeights] = useState({
@@ -273,6 +401,10 @@ export default function App() {
   const [isArenaProcessing, setIsArenaProcessing] = useState(false);
   const [arenaProgress, setArenaProgress] = useState(0); // 0 to 100
   const [arenaLogs, setArenaLogs] = useState<string[]>([]);
+  const [cpuLoad, setCpuLoad] = useState<number>(0);
+  const [gpuLoad, setGpuLoad] = useState<number>(0);
+  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
+  const [gpuHistory, setGpuHistory] = useState<number[]>([]);
   const [completedBattle, setCompletedBattle] = useState(false);
   const [realtimeTextA, setRealtimeTextA] = useState('');
   const [realtimeTextB, setRealtimeTextB] = useState('');
@@ -324,6 +456,12 @@ export default function App() {
   const modelAObj = useMemo(() => CANDIDATE_MODELS.find(m => m.id === arenaModelA) || CANDIDATE_MODELS[0], [arenaModelA]);
   const modelBObj = useMemo(() => CANDIDATE_MODELS.find(m => m.id === arenaModelB) || CANDIDATE_MODELS[1], [arenaModelB]);
 
+  const hasActiveBrowserModel = useMemo(() => {
+    const isModelABrowser = arenaModelA.startsWith('browser-') || modelAObj.sourceType.includes('Browser');
+    const isModelBBrowser = arenaModelB.startsWith('browser-') || modelBObj.sourceType.includes('Browser');
+    return isModelABrowser || isModelBBrowser;
+  }, [arenaModelA, arenaModelB, modelAObj, modelBObj]);
+
   // Clip start/end states for synchronized clipping
   const [clipStart, setClipStart] = useState<number>(0);
   const [clipEnd, setClipEnd] = useState<number | null>(null);
@@ -362,18 +500,75 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  const recognitionRef = useRef<any>(null);
+
   // Custom live audio trigger
   const startMicRecording = () => {
     setIsRecording(true);
     setRecordingPeaks([0.3, 0.5]);
-    setMicSampleTranscript("");
+    setMicSampleTranscript("Listening in real-time... Speak now.");
     setActiveSampleId('custom-mic');
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const rec = new SpeechRecognition();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = 'id-ID'; // default to Indonesian as it is highly popular on our platform
+        
+        let finalTrans = '';
+        rec.onresult = (event: any) => {
+          let interimTrans = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTrans += event.results[i][0].transcript;
+            } else {
+              interimTrans += event.results[i][0].transcript;
+            }
+          }
+          const combined = finalTrans || interimTrans;
+          if (combined) {
+            setMicSampleTranscript(combined);
+          }
+        };
+
+        rec.onerror = (e: any) => {
+          console.warn("SpeechRecognition socket error or blocked permissions: ", e.error);
+        };
+
+        rec.onend = () => {
+          console.log("SpeechRecognition native listener complete.");
+        };
+
+        rec.start();
+        recognitionRef.current = rec;
+      } catch (err) {
+        console.error("SpeechRecognition initialization crashed:", err);
+      }
+    }
   };
 
   const stopMicRecording = () => {
     setIsRecording(false);
-    // Provide a funny, realistic bilingual Indonesian slang sentence
-    setMicSampleTranscript("Gue lagi nyobain input suara langsung nih di browser, pengen tau sesangar apa model local whisper.cpp dibanding ElevenLabs cloud.");
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.error("Failed to cleanly stop SpeechRecognition:", e);
+      }
+      recognitionRef.current = null;
+    }
+    
+    // Fallback if no audio was captured or SpeechRecognition is not supported/blank
+    setTimeout(() => {
+      setMicSampleTranscript(prev => {
+        if (!prev || prev === "Listening in real-time... Speak now." || prev.trim().length === 0) {
+          return "Gue lagi nyobain input suara langsung nih di browser, pengen tau sesangar apa model local whisper.cpp dibanding ElevenLabs cloud.";
+        }
+        return prev;
+      });
+    }, 100);
   };
 
   const handleEditActiveDialogue = () => {
@@ -432,6 +627,10 @@ export default function App() {
     setCompletedBattle(false);
     setArenaProgress(0);
     setArenaLogs([]);
+    setCpuLoad(0);
+    setGpuLoad(0);
+    setCpuHistory([]);
+    setGpuHistory([]);
     setRealtimeTextA('');
     setRealtimeTextB('');
     setDetectedEmotionA(null);
@@ -440,6 +639,18 @@ export default function App() {
 
     const isDialogue = arenaMode === 'dialogue';
     const activeDuration = isDialogue ? activeDialogueProfile.audioDurationSecs : activeSample.audioDurationSecs;
+    
+    const isModelABrowser = arenaModelA.startsWith('browser-') || modelAObj.sourceType.includes('Browser');
+    const isModelBBrowser = arenaModelB.startsWith('browser-') || modelBObj.sourceType.includes('Browser');
+    const hasActiveBrowserModel = isModelABrowser || isModelBBrowser;
+
+    const isModelAWasm = arenaModelA.startsWith('browser-') && arenaModelA !== 'browser-web-speech-api';
+    const isModelBWasm = arenaModelB.startsWith('browser-') && arenaModelB !== 'browser-web-speech-api';
+    const isWasmActive = isModelAWasm || isModelBWasm;
+
+    const isModelANative = arenaModelA === 'browser-web-speech-api';
+    const isModelBNative = arenaModelB === 'browser-web-speech-api';
+    const isNativeActive = isModelANative || isModelBNative;
     
     // Calculate transcript limited to the clipped segment
     let fullTranscript = '';
@@ -460,6 +671,90 @@ export default function App() {
         .join(' ');
     }
     const words = fullTranscript.split(' ');
+
+    // Dynamic Client-Side Speech Recognition & WASM Runner (Phase 3 & Phase 4)
+    const runTranscription = (modelId: string, modelObj: STTModel) => {
+      const isBrowser = modelId.startsWith('browser-') || modelObj.sourceType.includes('Browser');
+      const isNative = modelObj.sourceType.includes('Native');
+      
+      if (isBrowser) {
+        return new Promise((resolve) => {
+          const downloadSize = (modelObj as any).downloadSizeMb || 0;
+          const startTime = performance.now();
+          
+          const runnerUpdate = (msg: string) => {
+            setArenaLogs(prev => [...prev, msg]);
+          };
+
+          // Run the matching real runner or offline simulator
+          let runPromise: Promise<string>;
+          if (modelId === 'browser-web-speech-api') {
+            const requestedLang = isDialogue 
+              ? (activeDialogueProfile.id.includes('telco') || activeDialogueProfile.id.includes('jaksel') ? 'Indonesian' : 'English') 
+              : activeSample.language;
+            runPromise = runWebSpeechApi(requestedLang, micSampleTranscript || null, runnerUpdate);
+          } else if (modelId === 'browser-transformers-js') {
+            const requestedLang = isDialogue 
+              ? (activeDialogueProfile.id.includes('telco') || activeDialogueProfile.id.includes('jaksel') ? 'Indonesian' : 'English') 
+              : activeSample.language;
+            runPromise = runTransformersJs(modelObj.name, requestedLang, runnerUpdate);
+          } else if (modelId.startsWith('browser-whisper-cpp')) {
+            runPromise = runWhisperCppWasm(modelObj.name, downloadSize, runnerUpdate);
+          } else {
+            runPromise = runOfflineSimulator(modelId, modelObj.name, runnerUpdate);
+          }
+
+          runPromise.then(() => {
+            const endTime = performance.now();
+            const totalLat = Math.round(endTime - startTime);
+
+            const simulatedText = generateWordMumbles(
+              fullTranscript, 
+              modelObj, 
+              isDialogue ? (activeDialogueProfile.id.includes('telco') || activeDialogueProfile.id.includes('jaksel')) : activeSample.language === 'Indonesian'
+            );
+            
+            const mockWords = simulatedText.split(/\s+/).filter(Boolean);
+            const segmentsList = [{
+              start: clipStart,
+              end: activeClipEnd,
+              text: simulatedText,
+              speakerId: 0,
+              words: mockWords.map((word, wIdx) => ({
+                word,
+                start: parseFloat((clipStart + wIdx * 0.4).toFixed(2)),
+                end: parseFloat((clipStart + wIdx * 0.4 + 0.3).toFixed(2)),
+                probability: parseFloat((0.88 + Math.random() * 0.12).toFixed(3))
+              }))
+            }];
+
+            resolve({
+              text: simulatedText,
+              language: isDialogue ? (activeDialogueProfile.id.includes('telco') || activeDialogueProfile.id.includes('jaksel') ? 'Indonesian' : 'English') : activeSample.language,
+              detectedEmotion: modelObj.emotionDetection ? 'Neutral (In-Browser)' : null,
+              latency_ms: totalLat,
+              model: modelObj.name,
+              segments: segmentsList,
+              isBrowserWasm: !isNative,
+              downloadSizeMb: downloadSize,
+              isBrowserSTT: true
+            });
+          });
+        });
+      } else {
+        return fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId,
+            text: fullTranscript,
+            language: requestLanguage,
+            isMumbled: requestIsMumbled,
+            temperature: 0.2
+          })
+        }).then(r => r.json());
+      }
+    };
     
     // Step by step logs
     const logTimeline = isDialogue ? [
@@ -482,7 +777,7 @@ export default function App() {
       { p: 100, msg: `✅ Processing finished successfully.` }
     ];
 
-    // Fire actual Express full-stack API requests Concurrently
+    // Fire actual Express full-stack API or dynamic Client/WASM requests Concurrently
     let apiCompleted = false;
     let apiResultA: any = null;
     let apiResultB: any = null;
@@ -495,34 +790,14 @@ export default function App() {
       : activeSample.mumbled;
 
     Promise.all([
-      fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelId: arenaModelA,
-          text: fullTranscript,
-          language: requestLanguage,
-          isMumbled: requestIsMumbled,
-          temperature: 0.2
-        })
-      }).then(r => r.json()),
-      fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelId: arenaModelB,
-          text: fullTranscript,
-          language: requestLanguage,
-          isMumbled: requestIsMumbled,
-          temperature: 0.2
-        })
-      }).then(r => r.json())
+      runTranscription(arenaModelA, modelAObj),
+      runTranscription(arenaModelB, modelBObj)
     ]).then(([resA, resB]) => {
       apiResultA = resA;
       apiResultB = resB;
       apiCompleted = true;
     }).catch(err => {
-      console.error("Express ASR Gateway connection error (using local mumble fallback):", err);
+      console.error("ASR Gateway run error (using local mumble fallback):", err);
       apiCompleted = true; // Fallback to client-side generators gracefully
     });
 
@@ -530,8 +805,47 @@ export default function App() {
     const intervalTicks = 50; // fast ticker
     let currentPct = 0;
     let fallbackWarningLogged = false;
+    let resourceTickCount = 0;
+    const localCpuHistory: number[] = [];
+    const localGpuHistory: number[] = [];
 
     const timer = setInterval(() => {
+      // Resource simulation
+      if (hasActiveBrowserModel) {
+        resourceTickCount++;
+        if (resourceTickCount % 2 === 0) {
+          let targetCpu = 0;
+          let targetGpu = 0;
+          if (isWasmActive) {
+            targetCpu = Math.floor(70 + Math.random() * 25); // 70-95
+            targetGpu = Math.floor(1 + Math.random() * 5);   // 1-5
+          } else if (isNativeActive) {
+            targetCpu = Math.floor(15 + Math.random() * 16); // 15-30
+            targetGpu = Math.floor(Math.random() * 2);       // 0-1
+          }
+
+          localCpuHistory.push(targetCpu);
+          localGpuHistory.push(targetGpu);
+          if (localCpuHistory.length > 20) localCpuHistory.shift();
+          if (localGpuHistory.length > 20) localGpuHistory.shift();
+
+          setCpuLoad(targetCpu);
+          setGpuLoad(targetGpu);
+          setCpuHistory([...localCpuHistory]);
+          setGpuHistory([...localGpuHistory]);
+
+          // Every 16 ticks (approx 800ms) append a telemetry status message inside the Arena CLI panel
+          if (resourceTickCount % 16 === 0) {
+            const cpuSpark = generateSparkline(localCpuHistory, 100);
+            const gpuSpark = generateSparkline(localGpuHistory, 100);
+            setArenaLogs(prev => [
+              ...prev,
+              `[Resource Engine] Usage: CPU ${targetCpu}% [${cpuSpark || ' '}] | GPU ${targetGpu}% [${gpuSpark || ' '}]`
+            ]);
+          }
+        }
+      }
+
       currentPct += 1.5;
       if (currentPct >= 100) {
         if (!apiCompleted) {
@@ -539,7 +853,7 @@ export default function App() {
           currentPct = 99;
           setArenaProgress(99);
           if (!fallbackWarningLogged) {
-            setArenaLogs(prev => [...prev, `[ASR GATEWAY] Awaiting real response coordinates from full-stack endpoint...`]);
+            setArenaLogs(prev => [...prev, `[ASR GATEWAY] Awaiting real response coordinates...`]);
             fallbackWarningLogged = true;
           }
           return;
@@ -559,6 +873,10 @@ export default function App() {
 
         setRealtimeTextA(finalTextA);
         setRealtimeTextB(finalTextB);
+
+        // Latencies
+        setActualLatencyA(apiResultA?.latency_ms || modelAObj.latencyMs);
+        setActualLatencyB(apiResultB?.latency_ms || modelBObj.latencyMs);
 
         // Emotion Detection
         const emotionA = (apiResultA && apiResultA.detectedEmotion) || (modelAObj.emotionDetection ? 'Neutral / Conversational' : null);
@@ -1441,8 +1759,21 @@ export default function App() {
                         onChange={(e) => setArenaModelA(e.target.value)}
                         className="w-full py-2 px-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
                       >
-                        {CANDIDATE_MODELS.map(m => (
-                          <option key={m.id} value={m.id}>{m.name} ({m.sourceType.replace('Local / ', '')})</option>
+                        {(Object.entries(groupedFighters) as [string, STTModel[]][]).map(([familyName, modelsList]) => (
+                          <optgroup key={familyName} label={familyName}>
+                            {modelsList.map(m => {
+                              const active = isModelActive(m.id);
+                              return (
+                                <option 
+                                  key={m.id} 
+                                  value={m.id} 
+                                  disabled={!active}
+                                >
+                                  {m.name} ({m.sourceType.replace('Local / ', '')}) {!active ? ' (STBY / UNLOADED)' : ''}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
                         ))}
                       </select>
                     </div>
@@ -1458,10 +1789,22 @@ export default function App() {
                         onChange={(e) => setArenaModelB(e.target.value)}
                         className="w-full py-2 px-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs disabled:bg-slate-100"
                       >
-                        {CANDIDATE_MODELS.map(m => (
-                          <option key={m.id} value={m.id} disabled={m.id === arenaModelA}>
-                            {m.name} ({m.sourceType.replace('Local / ', '')})
-                          </option>
+                        {(Object.entries(groupedFighters) as [string, STTModel[]][]).map(([familyName, modelsList]) => (
+                          <optgroup key={familyName} label={familyName}>
+                            {modelsList.map(m => {
+                              const active = isModelActive(m.id);
+                              const disabledByA = m.id === arenaModelA;
+                              return (
+                                <option 
+                                  key={m.id} 
+                                  value={m.id} 
+                                  disabled={disabledByA || !active}
+                                >
+                                  {m.name} ({m.sourceType.replace('Local / ', '')}) {disabledByA ? ' (FIGHTER A)' : !active ? ' (STBY / UNLOADED)' : ''}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
                         ))}
                       </select>
                       {arenaModelA === arenaModelB && (
@@ -1660,12 +2003,33 @@ export default function App() {
                         <span className="flex items-center gap-1"><Terminal className="w-3.5 h-3.5 text-emerald-400" /> CLI Simulation Console</span>
                         <span>{arenaProgress}%</span>
                       </div>
+
+                      {/* Real-time telemetry sparklines */}
+                      {hasActiveBrowserModel && (
+                        <div className="flex flex-col md:flex-row gap-3 px-3 py-1.5 bg-slate-900 border border-slate-850 rounded-lg font-mono text-[9px] text-slate-300 mb-2.5 select-none text-left">
+                          <div className="flex items-center gap-1.5 flex-1 justify-between md:justify-start">
+                            <span className="text-emerald-400 font-bold uppercase tracking-wider font-sans">CPU:</span>
+                            <span className="font-semibold text-white w-8 text-right">{cpuLoad}%</span>
+                            <span className="text-emerald-500 tracking-normal text-xs leading-none bg-emerald-950/40 px-1 py-0.5 rounded border border-emerald-900/40 font-mono whitespace-nowrap">
+                              {generateSparkline(cpuHistory, 100) || ' '}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-1 justify-between md:justify-start">
+                            <span className="text-amber-400 font-bold uppercase tracking-wider font-sans">GPU:</span>
+                            <span className="font-semibold text-white w-8 text-right">{gpuLoad}%</span>
+                            <span className="text-amber-500 tracking-normal text-xs leading-none bg-amber-950/40 px-1 py-0.5 rounded border border-amber-900/40 font-mono whitespace-nowrap">
+                              {generateSparkline(gpuHistory, 100) || ' '}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       {arenaLogs.map((log, i) => (
-                        <div key={i} className="leading-relaxed animate-[fadeIn_0.2s_ease-out]">
+                        <div key={i} className="leading-relaxed animate-[fadeIn_0.2s_ease-out] text-left">
                           {log}
                         </div>
                       ))}
-                      <div className="animate-pulse text-indigo-400 leading-normal">
+                      <div className="animate-pulse text-indigo-400 leading-normal text-left">
                         ⚡ decoding frames synchronously at {(modelAObj.throughputWordsPerSec * 1.5).toFixed(0)} WpS...
                       </div>
                     </div>
@@ -1699,8 +2063,18 @@ export default function App() {
                         <div className="flex justify-between items-start border-b border-slate-100 pb-2">
                           <div>
                             <span className="bg-indigo-50 text-indigo-700 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase">MODEL A</span>
-                            <h4 className="font-display font-bold text-slate-900 text-sm mt-0.5">{modelAObj.name}</h4>
-                            <span className="text-[10px] text-slate-400 font-mono tracking-tight capitalize">{modelAObj.sourceType}</span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <h4 className="font-display font-bold text-slate-900 text-sm">{modelAObj.name}</h4>
+                              {(arenaModelA.startsWith('browser-') || modelAObj.sourceType.includes('Browser')) && (
+                                <span className="bg-amber-100 text-amber-800 text-[8px] font-mono font-bold px-1 py-0.5 rounded uppercase whitespace-nowrap">
+                                  In-Browser WASM
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono tracking-tight capitalize">
+                              {modelAObj.sourceType}
+                              {modelAObj.downloadSizeMb ? ` • ${modelAObj.downloadSizeMb}MB Binary` : ''}
+                            </span>
                           </div>
                           <div className="text-right">
                             <div className="text-xs font-semibold text-slate-400">WER ENG/ID</div>
@@ -1729,11 +2103,20 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-2 text-[11px] font-sans">
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Latency (10s):</span>
-                              <span className="font-mono font-bold text-slate-850">{modelAObj.latencyMs} ms</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {actualLatencyA !== null ? `${actualLatencyA} ms` : `${modelAObj.latencyMs} ms`}
+                                {actualLatencyA !== null && (arenaModelA.startsWith('browser-') || modelAObj.sourceType.includes('Browser')) && (
+                                  <span className="text-[8px] block text-amber-700 font-sans font-medium">(CPU Run + Comp)</span>
+                                )}
+                              </span>
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Throughput:</span>
-                              <span className="font-mono font-bold text-slate-850">{modelAObj.throughputWordsPerSec} WpS</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {arenaModelA.startsWith('browser-') 
+                                  ? `${Math.round(modelAObj.throughputWordsPerSec * 0.9)} WpS (JS)` 
+                                  : `${modelAObj.throughputWordsPerSec} WpS`}
+                              </span>
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Estimated WER:</span>
@@ -1741,7 +2124,9 @@ export default function App() {
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">VRAM allocated:</span>
-                              <span className="font-mono font-bold text-slate-850">{modelAObj.vramRequiredGb.toFixed(1)} GB</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {arenaModelA.startsWith('browser-') || modelAObj.sourceType.includes('Browser') ? "0.0 GB (RAM)" : `${modelAObj.vramRequiredGb.toFixed(1)} GB`}
+                              </span>
                             </div>
                           </div>
                         )}
@@ -1752,8 +2137,18 @@ export default function App() {
                         <div className="flex justify-between items-start border-b border-slate-100 pb-2">
                           <div>
                             <span className="bg-amber-55 bg-amber-50 text-amber-700 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase">MODEL B</span>
-                            <h4 className="font-display font-bold text-slate-900 text-sm mt-0.5">{modelBObj.name}</h4>
-                            <span className="text-[10px] text-slate-400 font-mono tracking-tight capitalize">{modelBObj.sourceType}</span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <h4 className="font-display font-bold text-slate-900 text-sm">{modelBObj.name}</h4>
+                              {(arenaModelB.startsWith('browser-') || modelBObj.sourceType.includes('Browser')) && (
+                                <span className="bg-amber-100 text-amber-800 text-[8px] font-mono font-bold px-1 py-0.5 rounded uppercase whitespace-nowrap">
+                                  In-Browser WASM
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono tracking-tight capitalize">
+                              {modelBObj.sourceType}
+                              {modelBObj.downloadSizeMb ? ` • ${modelBObj.downloadSizeMb}MB Binary` : ''}
+                            </span>
                           </div>
                           <div className="text-right">
                             <div className="text-xs font-semibold text-slate-400">WER ENG/ID</div>
@@ -1782,11 +2177,20 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-2 text-[11px] font-sans">
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Latency (10s):</span>
-                              <span className="font-mono font-bold text-slate-850">{modelBObj.latencyMs} ms</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {actualLatencyB !== null ? `${actualLatencyB} ms` : `${modelBObj.latencyMs} ms`}
+                                {actualLatencyB !== null && (arenaModelB.startsWith('browser-') || modelBObj.sourceType.includes('Browser')) && (
+                                  <span className="text-[8px] block text-amber-700 font-sans font-medium">(CPU Run + Comp)</span>
+                                )}
+                              </span>
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Throughput:</span>
-                              <span className="font-mono font-bold text-slate-850">{modelBObj.throughputWordsPerSec} WpS</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {arenaModelB.startsWith('browser-') 
+                                  ? `${Math.round(modelBObj.throughputWordsPerSec * 0.9)} WpS (JS)` 
+                                  : `${modelBObj.throughputWordsPerSec} WpS`}
+                              </span>
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">Estimated WER:</span>
@@ -1794,7 +2198,9 @@ export default function App() {
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                               <span className="text-slate-400 block mb-0.5">VRAM allocated:</span>
-                              <span className="font-mono font-bold text-slate-850">{modelBObj.vramRequiredGb.toFixed(1)} GB</span>
+                              <span className="font-mono font-bold text-slate-850">
+                                {arenaModelB.startsWith('browser-') || modelBObj.sourceType.includes('Browser') ? "0.0 GB (RAM)" : `${modelBObj.vramRequiredGb.toFixed(1)} GB`}
+                              </span>
                             </div>
                           </div>
                         )}
@@ -1814,12 +2220,12 @@ export default function App() {
                         <p className="text-slate-500 max-w-lg">
                           {arenaMode === 'dialogue' ? (
                             <>
-                              Model <b>{modelAObj.latencyMs < modelBObj.latencyMs ? modelAObj.name : modelBObj.name}</b> completes speech decoding fastest. 
+                              Model <b>{(actualLatencyA !== null ? actualLatencyA : modelAObj.latencyMs) < (actualLatencyB !== null ? actualLatencyB : modelBObj.latencyMs) ? modelAObj.name : modelBObj.name}</b> completes speech decoding fastest. 
                               Model <b>{modelAObj.hasSpeakerDiarization ? modelAObj.name : modelBObj.name}</b> successfully isolates sub-second conversational overlaps and establishes pristine diarization alignment.
                             </>
                           ) : (
                             <>
-                              Model <b>{modelAObj.latencyMs < modelBObj.latencyMs ? modelAObj.name : modelBObj.name}</b> wins on processing latency. 
+                              Model <b>{(actualLatencyA !== null ? actualLatencyA : modelAObj.latencyMs) < (actualLatencyB !== null ? actualLatencyB : modelBObj.latencyMs) ? modelAObj.name : modelBObj.name}</b> wins on processing latency. 
                               Model <b>{getBetterAccuracyModel(modelAObj, modelBObj, activeSample)}</b> provides superior transcription accuracy on this specific difficulty footprint.
                             </>
                           )}
@@ -1852,6 +2258,8 @@ export default function App() {
               className="space-y-6"
             >
               
+              <ComparativeAnalysisReport />
+
               {/* Financial Dashboard controls */}
               <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm space-y-5">
                 <div>
@@ -2285,6 +2693,8 @@ export default function App() {
               </div>
 
               <ApiPayloadGenerator />
+
+              <ApiSandbox />
 
               {/* CODE TABS CONTROLLER CONTAINER */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

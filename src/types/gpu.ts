@@ -21,6 +21,8 @@ export interface ManagedModel {
   status: 'unloaded' | 'loading' | 'loaded';
   gpuId?: string; // which GPU it's currently loaded on, if any
   progress?: number; // load progress percentage (if 'loading')
+  downloadSizeMb?: number; // Metadata for model's download size in MB
+  sourceType?: string; // Track source engine typings like 'Browser / WASM' etc.
 }
 
 export interface GpuLogMsg {

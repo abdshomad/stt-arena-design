@@ -71,7 +71,11 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         <div className="grid grid-cols-2 gap-2 bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-[11px] font-mono text-slate-600">
           <div className="flex items-center gap-1.5">
             <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-            <span>Size: <strong className="text-slate-800">{model.sizeGb.toFixed(1)} GB</strong></span>
+            {model.id.startsWith('browser-') ? (
+              <span>Download: <strong className="text-slate-800">{model.downloadSizeMb ?? 0} MB</strong></span>
+            ) : (
+              <span>Size: <strong className="text-slate-800">{model.sizeGb.toFixed(1)} GB</strong></span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <Cpu className="w-3.5 h-3.5 text-slate-400" />
@@ -106,54 +110,65 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       <div className="mt-4 pt-4 border-t border-slate-100/80 relative">
         {model.status === 'unloaded' && (
           <div className="relative">
-            <button
-              onClick={() => {
-                setShowLoadDropdown(!showLoadDropdown);
-                setShowMoveDropdown(false);
-              }}
-              className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
-            >
-              <span>Load Model onto GPU</span>
-            </button>
+            {model.id.startsWith('browser-') ? (
+              <button
+                onClick={() => onLoadModel(model.id, 'browser')}
+                className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              >
+                <span>Load Model in Browser</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setShowLoadDropdown(!showLoadDropdown);
+                    setShowMoveDropdown(false);
+                  }}
+                  className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <span>Load Model onto GPU</span>
+                </button>
 
-            {showLoadDropdown && (
-              <div className="absolute bottom-full mb-2 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Select Destination GPU
-                </div>
-                {gpus.map((gpu) => {
-                  const hasSpace = gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb;
-                  return (
-                    <button
-                      key={gpu.id}
-                      disabled={!hasSpace}
-                      onClick={() => {
-                        onLoadModel(model.id, gpu.id);
-                        setShowLoadDropdown(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-colors cursor-pointer ${
-                        hasSpace
-                          ? 'hover:bg-slate-50 text-slate-700'
-                          : 'bg-slate-50/50 text-slate-350 cursor-not-allowed'
-                      }`}
-                    >
-                      <div className="font-medium">
-                        {gpu.name}
-                        <span className="text-[10px] text-slate-400 block font-normal">
-                          Free: {(gpu.vramTotalGb - gpu.vramUsedGb).toFixed(1)} GB
-                        </span>
-                      </div>
-                      <span className="font-mono text-[10px] font-bold">
-                        {gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb ? (
-                          <span className="text-emerald-600">{model.sizeGb.toFixed(1)} GB Req.</span>
-                        ) : (
-                          <span className="text-rose-500 font-bold">Insufficient VRAM</span>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                {showLoadDropdown && (
+                  <div className="absolute bottom-full mb-2 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                    <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Select Destination GPU
+                    </div>
+                    {gpus.map((gpu) => {
+                      const hasSpace = gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb;
+                      return (
+                        <button
+                          key={gpu.id}
+                          disabled={!hasSpace}
+                          onClick={() => {
+                            onLoadModel(model.id, gpu.id);
+                            setShowLoadDropdown(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-colors cursor-pointer ${
+                            hasSpace
+                              ? 'hover:bg-slate-50 text-slate-700'
+                              : 'bg-slate-50/50 text-slate-350 cursor-not-allowed'
+                          }`}
+                        >
+                          <div className="font-medium">
+                            {gpu.name}
+                            <span className="text-[10px] text-slate-400 block font-normal">
+                              Free: {(gpu.vramTotalGb - gpu.vramUsedGb).toFixed(1)} GB
+                            </span>
+                          </div>
+                          <span className="font-mono text-[10px] font-bold">
+                            {gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb ? (
+                              <span className="text-emerald-600">{model.sizeGb.toFixed(1)} GB Req.</span>
+                            ) : (
+                              <span className="text-rose-500 font-bold">Insufficient VRAM</span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -163,7 +178,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
             <div className="flex justify-between text-[11px] font-mono text-amber-700">
               <span className="flex items-center gap-1">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Orchestrating...
+                {model.id.startsWith('browser-') ? 'Downloading & Compiling...' : 'Orchestrating...'}
               </span>
               <span className="font-bold">{model.progress || 0}%</span>
             </div>
@@ -176,82 +191,99 @@ export const ModelCard: React.FC<ModelCardProps> = ({
           </div>
         )}
 
-        {model.status === 'loaded' && currentGpu && (
+        {model.status === 'loaded' && (model.id.startsWith('browser-') ? (
           <div className="space-y-3">
-            <div className="bg-indigo-50/60 border border-indigo-100/50 rounded-xl p-2.5 flex items-center justify-between text-xs">
-              <span className="text-indigo-805 font-medium flex items-center gap-1.5">
-                <Cpu className="w-3.5 h-3.5 text-indigo-500" />
-                Loaded on {currentGpu.name}
+            <div className="bg-emerald-50/60 border border-emerald-100/50 rounded-xl p-2.5 flex items-center justify-between text-xs">
+              <span className="text-emerald-800 font-medium flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                Loaded in Browser
               </span>
             </div>
-
-            <div className="flex gap-2">
-              {/* Move Model button */}
-              <div className="relative flex-1">
-                <button
-                  onClick={() => {
-                    setShowMoveDropdown(!showMoveDropdown);
-                    setShowLoadDropdown(false);
-                  }}
-                  className="w-full py-1.5 px-2 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200/80 font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  <span>Move GPU</span>
-                </button>
-
-                {showMoveDropdown && (
-                  <div className="absolute bottom-full mb-2 left-0 right-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden divide-y divide-slate-100">
-                    <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      Move onto another GPU
-                    </div>
-                    {gpus
-                      .filter((g) => g.id !== model.gpuId)
-                      .map((gpu) => {
-                        const hasSpace = gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb;
-                        return (
-                          <button
-                            key={gpu.id}
-                            disabled={!hasSpace}
-                            onClick={() => {
-                              onMoveModel(model.id, gpu.id);
-                              setShowMoveDropdown(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-colors cursor-pointer ${
-                              hasSpace
-                                ? 'hover:bg-slate-50 text-slate-700'
-                                : 'bg-slate-50/50 text-slate-350 cursor-not-allowed'
-                            }`}
-                          >
-                            <div className="font-medium">
-                              {gpu.name}
-                              <span className="text-[10px] text-slate-400 block font-normal text-slate-450">
-                                Free: {(gpu.vramTotalGb - gpu.vramUsedGb).toFixed(1)} GB
-                              </span>
-                            </div>
-                            <span className="font-mono text-[10px] font-bold">
-                              {gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb ? (
-                                <span className="text-emerald-600">Available</span>
-                              ) : (
-                                <span className="text-rose-500 font-bold">No Space</span>
-                              )}
-                            </span>
-                          </button>
-                        );
-                      })}
-                  </div>
-                )}
+            <button
+              onClick={() => onUnloadModel(model.id)}
+              className="w-full py-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              <span>Unload from Browser</span>
+            </button>
+          </div>
+        ) : (
+          currentGpu && (
+            <div className="space-y-3">
+              <div className="bg-indigo-50/60 border border-indigo-100/50 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                <span className="text-indigo-805 font-medium flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-indigo-500" />
+                  Loaded on {currentGpu.name}
+                </span>
               </div>
 
-              {/* Unload button */}
-              <button
-                onClick={() => onUnloadModel(model.id)}
-                className="py-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 font-medium rounded-lg text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
-              >
-                <span>Unload</span>
-              </button>
+              <div className="flex gap-2">
+                {/* Move Model button */}
+                <div className="relative flex-1">
+                  <button
+                    onClick={() => {
+                      setShowMoveDropdown(!showMoveDropdown);
+                      setShowLoadDropdown(false);
+                    }}
+                    className="w-full py-1.5 px-2 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200/80 font-medium rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>Move GPU</span>
+                  </button>
+
+                  {showMoveDropdown && (
+                    <div className="absolute bottom-full mb-2 left-0 right-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden divide-y divide-slate-100">
+                      <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Move onto another GPU
+                      </div>
+                      {gpus
+                        .filter((g) => g.id !== model.gpuId)
+                        .map((gpu) => {
+                          const hasSpace = gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb;
+                          return (
+                            <button
+                              key={gpu.id}
+                              disabled={!hasSpace}
+                              onClick={() => {
+                                onMoveModel(model.id, gpu.id);
+                                setShowMoveDropdown(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 text-xs flex justify-between items-center transition-colors cursor-pointer ${
+                                hasSpace
+                                  ? 'hover:bg-slate-50 text-slate-700'
+                                  : 'bg-slate-50/50 text-slate-350 cursor-not-allowed'
+                              }`}
+                            >
+                              <div className="font-medium">
+                                {gpu.name}
+                                <span className="text-[10px] text-slate-400 block font-normal text-slate-450">
+                                  Free: {(gpu.vramTotalGb - gpu.vramUsedGb).toFixed(1)} GB
+                                </span>
+                              </div>
+                              <span className="font-mono text-[10px] font-bold">
+                                {gpu.vramTotalGb - gpu.vramUsedGb >= model.sizeGb ? (
+                                  <span className="text-emerald-600">Available</span>
+                                ) : (
+                                  <span className="text-rose-500 font-bold">No Space</span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Unload button */}
+                <button
+                  onClick={() => onUnloadModel(model.id)}
+                  className="py-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 font-medium rounded-lg text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
+                >
+                  <span>Unload</span>
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        ))}
       </div>
     </div>
   );
