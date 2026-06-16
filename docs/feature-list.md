@@ -1,4 +1,4 @@
-# STT Arena Feature List
+# Speech-to-Text Model Arena Feature List
 
 An interactive benchmarking dashboard and model arena comparing transcription accuracy (Word Error Rate - WER), latency, and multilingual capabilities across open-source (hosted or local) and commercial cloud Speech-to-Text (STT) engines.
 
@@ -155,4 +155,12 @@ An interactive hardware-level cluster scheduler cockpit to manage high-performan
   - **Reschedule / Move Model**: Swaps a loaded model smoothly from an originating host to a target GPU node, executing hot-swap routines.
 - **Real-Time Orchestrator Logs Terminal**:
   - A real-time, terminal-like telemetry scroll monitoring BIOS, CUDA mounts, VAD frame segmentations, and allocation changes smoothly.
+
+---
+
+## 6. Global Platform Branding & Identity
+System-wide architectural name harmonization alignment:
+- **Speech-to-Text Model Arena**: Replaced all abbreviated titles and generic labels with the fully descriptive, standardized platform name.
+- **Synchronized UI and Layout Headers**: Updated HTML `<title>` tags, interactive header nodes, and API developer playgrounds to utilize the aligned branding consistently.
+
 

@@ -1061,7 +1061,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <div>
                 <h1 className="font-display font-extrabold text-lg tracking-tight text-slate-900 flex items-center gap-1.5 flex-wrap">
-                  STT ARENA 
+                  Speech-to-Text Model Arena
                   <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase leading-none">v2.4.0-BETA</span>
                   {apiConfig && (
                     <span 

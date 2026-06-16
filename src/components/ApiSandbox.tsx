@@ -101,7 +101,7 @@ export const ApiSandbox: React.FC = () => {
         <div>
           <h4 className="font-display font-medium text-white text-xs uppercase tracking-wider flex items-center gap-2">
             <Terminal className="text-indigo-400 w-4.5 h-4.5" />
-            STT Arena v1 REST API Playground & Sandbox
+            Speech-to-Text Model Arena v1 REST API Playground & Sandbox
           </h4>
           <span className="text-[10px] text-slate-400 block mt-0.5">Test real API interactions and inspect latency footprints instantly</span>
         </div>

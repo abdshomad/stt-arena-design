@@ -1,6 +1,6 @@
-# STT Arena: SOTA ASR Benchmarking & GPU Orchestration Platform
+# Speech-to-Text Model Arena: SOTA ASR Benchmarking & GPU Orchestration Platform
 
-STT Arena is an advanced full-stack platform for benchmarking, optimizing, and orchestrating state-of-the-art Automatic Speech Recognition (ASR) / Speech-to-Text (STT) engines and CUDA-based graphics processing clusters. It features high-fidelity simulation controls as well as real live server integration capabilities for physical testing enviornments.
+Speech-to-Text Model Arena is an advanced full-stack platform for benchmarking, optimizing, and orchestrating state-of-the-art Automatic Speech Recognition (ASR) / Speech-to-Text (STT) engines and CUDA-based graphics processing clusters. It features high-fidelity simulation controls as well as real live server integration capabilities for physical testing enviornments.
 
 ---
 
